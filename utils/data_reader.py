@@ -50,14 +50,8 @@ class CorpusReader:
 
     def readOneDoc(self,dpath):
         ff = open(dpath,'r')
-        flag = False
         text = []
         for line in ff.readlines():
-            if '<TEXT>' in line:
-                flag = True
-            elif '</TEXT>' in line:
-                break
-            elif flag and line.strip().lower() != '<p>' and line.strip().lower() != '</p>':
                 text.append(line.strip())
 
         ff.close()
