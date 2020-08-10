@@ -18,7 +18,7 @@ from torch.autograd import Variable
 
 
 class DeepTDAgent:
-    def __init__(self, vectoriser, summaries, train_round=5000, strict_para=3):
+    def __init__(self, vectoriser, summaries, train_round=5000, strict_para=3, gpu=True):
 
         # hyper parameters
         self.gamma = 1.
@@ -37,6 +37,7 @@ class DeepTDAgent:
 
         # deep training
         self.hidden_layer_width = int(self.vectoriser.vec_length/2)
+        self.gpu = gpu
 
 
     def __call__(self,reward_list,normalise=True):
@@ -57,6 +58,7 @@ class DeepTDAgent:
             torch.nn.ReLU(),
             torch.nn.Linear(self.hidden_layer_width, 1),
         )
+        if self.gpu: self.deep_model.to('cuda')
         self.optimiser = torch.optim.Adam(self.deep_model.parameters())
 
         for ii in tqdm(range(int(self.train_round)), desc='neural-rl training episodes'):
@@ -102,7 +104,8 @@ class DeepTDAgent:
             if act_id == 0:
                 current_state_vec = state.getSelfVector(self.vectoriser.top_ngrams_list, self.vectoriser.sentences)
                 vec_variable = Variable(torch.from_numpy(np.array(current_state_vec)).float())
-                terminate_reward = self.deep_model(vec_variable.unsqueeze(0)).data.numpy()[0][0]
+                if self.gpu: vec_variable = vec_variable.to('cuda')
+                terminate_reward = self.deep_model(vec_variable.unsqueeze(0)).data.cpu().numpy()[0][0]
 
             # otherwise, the reward is 0, and value-function can be computed using the weight
             else:
@@ -118,8 +121,9 @@ class DeepTDAgent:
         if len(vec_list) == 0: return 0
         # get action that results in highest values
         variable = Variable(torch.from_numpy(np.array(vec_list)).float())
+        if self.gpu: variable = variable.to('cuda')
         values = self.deep_model(variable)
-        values_list = values.data.numpy()
+        values_list = values.data.cpu().numpy()
         values_list = [v[0] for v in values_list]
         #print('vectors list: ')
         #for vv in str_vec_list:
@@ -157,9 +161,11 @@ class DeepTDAgent:
 
 
     def deepTrain(self, vec_list, last_reward):
-        value_variables = self.deep_model(Variable(torch.from_numpy(np.array(vec_list)).float()))
+        vecs = Variable(torch.from_numpy(np.array(vec_list)).float())
+        if self.gpu: vecs = vecs.to('cuda')
+        value_variables = self.deep_model(vecs)
         #print('value var', value_variables)
-        value_list = value_variables.data.numpy()
+        value_list = value_variables.data.cpu().numpy()
         target_list = []
         for idx in range(len(value_list)-1):
             target_list.append(self.gamma*value_list[idx+1][0])
@@ -168,6 +174,10 @@ class DeepTDAgent:
         #print('target var', target_variables)
 
         loss_fn = torch.nn.MSELoss()
+        if self.gpu:
+            #value_variables = value_variables.to('cuda')
+            target_variables = target_variables.to('cuda')
+
         loss = loss_fn(value_variables,target_variables)
 
         self.optimiser.zero_grad()
